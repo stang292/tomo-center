@@ -204,7 +204,7 @@ tomo-center train --image-root /path/to/root1 /path/to/root2 ...\
     --meta-info-file /path/to/metadata1 /path/to/metadata2 ...\
     --enlarge-factor 1 1 ...\
     --resume /path/to/datav2_518_full_finetune.pt \
-    --out    /path/to/finetuned_model.pt
+    --out    /path/to/finetuned_model.pt \
     --freeze-backbone-ok
 ```
 ### Defaults and key flags
