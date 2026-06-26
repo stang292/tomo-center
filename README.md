@@ -3,11 +3,16 @@
 Standalone AI rotation-axis center picker and fine-tuner for pre-reconstructed
 TIFF slices.
 
-The model and inference code are **vendored from
-[tomocupy/develop](https://github.com/stang292/tomocupy/tree/develop/src/tomocupy/ai)**
-(BSD-3, UChicago Argonne LLC). This repo packages just the bits needed to run
-the classifier outside the full `tomocupy` reconstruction stack — no CUDA build,
-no SWIG, no HDF5 reader.
+This repository is the reference standalone implementation of the AI
+rotation-axis classifier. The same model and inference pipeline have also
+been integrated into the
+[`tomocupy`](https://github.com/tomography/tomocupy) reconstruction package
+(BSD-3, UChicago Argonne LLC), where they are exposed as the
+`--rotation-axis-method ai` option of the `tomocupy recon` and
+`tomocupy recon_steps` commands. The standalone packaging here runs the
+classifier on its own, without the full `tomocupy` reconstruction stack —
+no CUDA build, no SWIG, no HDF5 reader — so it can be applied directly to
+any folder of pre-reconstructed TIFF slices.
 
 Two subcommands:
 
@@ -239,18 +244,21 @@ use `--resume` instead.
 
 ## Attribution
 
-- `src/tomo_center/ai/inference.py` — vendored from
-  `tomocupy/src/tomocupy/ai/inference.py`. Changes vs. upstream: internal
-  import path; switched `print()` to the package logger; fixed an
-  `UnboundLocalError` in the single-instance branch (`patch_corner` →
-  `patch_corners`).
-- `src/tomo_center/ai/model_archs.py` — vendored verbatim from
-  `tomocupy/src/tomocupy/ai/model_archs.py`. It in turn includes a DINOv2 ViT
+- `src/tomo_center/ai/inference.py` — reference implementation of the
+  classifier inference pipeline. The same file is also integrated into
+  [`tomocupy`](https://github.com/tomography/tomocupy) at
+  `src/tomocupy/ai/inference.py`. Differences in this standalone copy:
+  internal import path; uses the package logger in place of `print()`;
+  fixes an `UnboundLocalError` in the single-instance branch
+  (`patch_corner` → `patch_corners`).
+- `src/tomo_center/ai/model_archs.py` — reference model-architecture
+  module, shared verbatim with `tomocupy` at
+  `src/tomocupy/ai/model_archs.py`. It includes a DINOv2 ViT
   (Apache-2.0, Meta) and attention pooling (MIT, Ilse & Tomczak).
-- `src/tomo_center/logging.py` — adapted from
-  `tomocupy/src/tomocupy/logging.py` (same colored-console formatter, scoped
-  to the `tomo_center.*` logger tree).
-- `src/tomo_center/train.py` — new. Single-GPU head-only fine-tune harness;
-  the AdamW gain/bias weight-decay split and cosine-LR-with-warmup recipe are
-  borrowed from an internal training script by S. Tang.
-- See `LICENSE` for the upstream BSD-3 terms.
+- `src/tomo_center/logging.py` — colored-console logging formatter,
+  scoped to the `tomo_center.*` logger tree. The same formatter is
+  also used in `tomocupy` (`src/tomocupy/logging.py`).
+- `src/tomo_center/train.py` — single-GPU head-only fine-tune harness;
+  the AdamW gain/bias weight-decay split and cosine-LR-with-warmup
+  recipe are borrowed from an internal training script by S. Tang.
+- See `LICENSE` for BSD-3 terms (UChicago Argonne LLC).
