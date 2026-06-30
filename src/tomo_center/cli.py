@@ -181,7 +181,7 @@ def _add_train_parser(sub: argparse._SubParsersAction) -> None:
                    help="Factor by which training data under each root directory are upsampled.")
     p.add_argument("--split-kw", type=str,default="case",choices=["case","file"],help="Level of the training data to make the train-validation split.")
     p.add_argument("--out", type=Path, required=True,
-                   help="Path to write the best checkpoint (.pt).")
+                   help="Directory to write the checkpoints (.pt).")
     p.add_argument("--resume", type=Path, default=None,
                    help="Existing checkpoint to fine-tune from. If omitted, the "
                         "backbone is downloaded from Meta's torch.hub (requires internet).")

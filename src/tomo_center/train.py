@@ -173,7 +173,7 @@ def _collect_pairs(image_root,meta_info_file,enlarge_factor,split_kw:str='case')
                 cors = [extract_cor_from_filename(str(image_file)) for image_file in image_files_]
                 labels = [cor==optimal_cor for cor in cors]
                 if not np.any(np.array(labels)):
-                    log.warning("Case %s does not contain any images with the actual cor.",image_root_)
+                    log.warning("Case %s does not contain any images with the actual cor.",image_dir)
                 
                 row, col = metadata[2][1:-1].split(',')
                 row, col = int(row), int(col)
@@ -213,6 +213,10 @@ def extract_cor_from_filename(filename: str) -> float:
     match = re.search(r'center(\d+)', base)
     if match:
         return float(match.group(1))
+    
+    match = re.search(r'_(\d+)\.(\d+)', base)
+    if match:
+        return float(f"{match.group(1)}.{match.group(2)}")
 
     return None
 
@@ -413,11 +417,13 @@ def _epoch(model, loader, loss_fn, device, optimizer=None, scheduler=None):
     grad_ctx = torch.enable_grad() if train_mode else torch.no_grad()
     with grad_ctx:
         for imgs, labels in loader:
-            print(imgs.size())
             imgs = imgs.to(device, non_blocking=True)     # (B, k, 1, sz, sz)
             labels = labels.to(device, non_blocking=True)
             # ClassificationModel.forward takes a list of dicts (one per scale).
-            logits = model({"images": imgs})            # (B, 2)
+            if train_mode:
+                logits = model({"images": imgs})            # (B, 2)
+            else:
+                logits = model([{"images": imgs}])
             loss = loss_fn(logits, labels)
             if train_mode:
                 optimizer.zero_grad(set_to_none=True)
@@ -474,7 +480,7 @@ def run_training(args: argparse.Namespace) -> int:
         optimizer, lr_lambda=_lr_lambda(args.warmup_steps, total_steps))
     loss_fn = torch.nn.CrossEntropyLoss()
 
-    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.mkdir(parents=True, exist_ok=True)
     best_metric = -1.0  # val_acc if we have val, else -train_loss
     best_epoch = 0
 
@@ -491,6 +497,15 @@ def run_training(args: argparse.Namespace) -> int:
                      epoch, args.epochs, train_loss, train_acc)
             metric = -train_loss
 
+        torch.save(
+                {
+                    "epoch": epoch,
+                    "state_dict": model.state_dict(),
+                    "args": vars(args),
+                    "val_acc": (metric if val_loader is not None else None),
+                },
+                (args.out / f"epoch_{epoch}.pt"),
+            )
         if metric > best_metric:
             best_metric = metric
             best_epoch = epoch
@@ -501,12 +516,12 @@ def run_training(args: argparse.Namespace) -> int:
                     "args": vars(args),
                     "val_acc": (metric if val_loader is not None else None),
                 },
-                args.out,
+                (args.out / "epoch_best.pt"),
             )
             log.info("  saved best -> %s%s",
-                     args.out,
+                     (args.out / "epoch_best.pt"),
                      f" (val_acc={metric:.3f})" if val_loader is not None else "")
 
     log.info("Training done. Best epoch=%d. Checkpoint: %s",
-             best_epoch, args.out)
+             best_epoch, (args.out / 'epoch_best.pt'))
     return 0
