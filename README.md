@@ -205,7 +205,7 @@ tomo-center train --image-root /path/to/root1 /path/to/root2 ...\
     --enlarge-factor 1 1 ...\
     --resume /path/to/datav2_518_full_finetune.pt \
     --out    /path/to/the/directory/containing/finetuned_model.pt \
-    --freeze-backbone-ok
+    --freeze-backbone
 ```
 To freeze both the backbone ViT and the adaptive pooling weights and only fine-tune the classification head weights (head-only training), run:
 ```bash
@@ -214,8 +214,8 @@ tomo-center train --image-root /path/to/root1 /path/to/root2 ...\
     --enlarge-factor 1 1 ...\
     --resume /path/to/datav2_518_full_finetune.pt \
     --out    /path/to/the/directory/containing/finetuned_model.pt \
-    --freeze-backbone-ok \
-    --freeze-pooler-ok
+    --freeze-backbone \
+    --freeze-pooler
 ```
 ### Defaults and key flags
 

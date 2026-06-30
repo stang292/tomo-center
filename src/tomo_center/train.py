@@ -333,7 +333,7 @@ def _build_model(args, device: torch.device) -> ClassificationModel:
             ) from e
         backbone.load_state_dict(hub_model.state_dict(), strict=False)
 
-    if args.freeze_backbone_ok:
+    if args.freeze_backbone:
         for p in backbone.parameters():
             p.requires_grad = False
     multi_instances = (args.num_windows>1)
@@ -342,10 +342,10 @@ def _build_model(args, device: torch.device) -> ClassificationModel:
         embed_dim=backbone.embed_dim,
         num_windows=[args.num_windows],
         multi_instances=multi_instances,
-        freeze_backbone_ok=args.freeze_backbone_ok
+        freeze_backbone_ok=args.freeze_backbone
     )
 
-    if args.freeze_pooler_ok:
+    if args.freeze_pooler:
         for p in model.attention.parameters():
             p.requires_grad = False
         for p in model.gate.parameters():

@@ -206,9 +206,9 @@ def _add_train_parser(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--num-workers", type=int, default=2)
     p.add_argument("--no-augment", action="store_true",
                    help="Disable random flip + small crop offset on the training set.")
-    p.add_argument("--freeze-backbone-ok", action="store_true",
+    p.add_argument("--freeze-backbone", action="store_true",
                    help="When set freeze the backbone weights.")
-    p.add_argument("--freeze-pooler-ok", action="store_true",
+    p.add_argument("--freeze-pooler", action="store_true",
                    help="When set freeze the attention pooling weights.")
     p.add_argument("--resampling_method", type=str, default='upsample',choices=['upsample','downsample','none'],
                    help="Balance the training data by resampling data from one class.")
