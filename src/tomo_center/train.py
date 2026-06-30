@@ -496,16 +496,16 @@ def run_training(args: argparse.Namespace) -> int:
             log.info("epoch %2d/%d  train_loss=%.4f train_acc=%.3f  (no val)",
                      epoch, args.epochs, train_loss, train_acc)
             metric = -train_loss
-
-        torch.save(
-                {
-                    "epoch": epoch,
-                    "state_dict": model.state_dict(),
-                    "args": vars(args),
-                    "val_acc": (metric if val_loader is not None else None),
-                },
-                (args.out / f"epoch_{epoch}.pt"),
-            )
+        if args.checkpoint_every_epoch:
+            torch.save(
+                    {
+                        "epoch": epoch,
+                        "state_dict": model.state_dict(),
+                        "args": vars(args),
+                        "val_acc": (metric if val_loader is not None else None),
+                    },
+                    (args.out / f"epoch_{epoch}.pt"),
+                )
         if metric > best_metric:
             best_metric = metric
             best_epoch = epoch

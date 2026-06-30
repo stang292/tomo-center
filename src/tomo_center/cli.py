@@ -212,6 +212,8 @@ def _add_train_parser(sub: argparse._SubParsersAction) -> None:
                    help="When set freeze the attention pooling weights.")
     p.add_argument("--resampling_method", type=str, default='upsample',choices=['upsample','downsample','none'],
                    help="Balance the training data by resampling data from one class.")
+    p.add_argument("--checkpoint-every-epoch", action="store_true",
+                   help="When set save the model weights for every training epoch.")
     p.set_defaults(func=cmd_train)
 
 
