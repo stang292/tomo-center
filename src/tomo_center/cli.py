@@ -7,7 +7,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from tomo_center import logging as tca_logging
-from tomo_center.ai.inference import inference_pipeline
 from tomo_center.io_tiff import load_folder
 
 log = tca_logging.getLogger(__name__)
@@ -51,7 +50,7 @@ def _add_find_parser(sub: argparse._SubParsersAction) -> None:
     )
     p.add_argument("folder", type=Path,
                    help="Folder containing one TIFF per candidate center.")
-    p.add_argument("--model-path", type=Path, required=True,
+    p.add_argument("--model-path", type=Path,
                    help="Classifier checkpoint (.pt). Download from "
                         "https://anl.box.com/s/k85a89kyplzd56hnjudw4ergt6ojfhoa")
     p.add_argument("--centers-file", type=Path, default=None,
@@ -63,12 +62,26 @@ def _add_find_parser(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--num-windows", type=int, nargs="+", default=[3])
     p.add_argument("--window-size", type=int, nargs="+", default=[518])
     p.add_argument("--use-8bits", action="store_true")
-    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--seed", type=int, default=10)
     p.add_argument("--save-intermediate", action="store_true")
     p.add_argument("--plot", nargs="?", type=Path, const="__default__", default=None,
                    metavar="PATH",
                    help="Save (and display, if a GUI is available) a score-vs-center "
                         "PNG. Without a value, writes to <out-dir>/scores.png.")
+    p.add_argument("--use-bin-infer", action="store_true")
+    p.add_argument("--use-hierarchical-search", action="store_true")
+    p.add_argument("--bin-infer-use-8bits", action="store_true")
+    p.add_argument("--bin-infer-downsample-factor", type=int, nargs="+", default=[1])
+    p.add_argument("--bin-infer-num-windows", type=int, nargs="+", default=[20])
+    p.add_argument("--bin-infer-window-size", type=int, nargs="+", default=[518])
+    p.add_argument("--bin-infer-bin-sizes", type=int, nargs="+", default=[24])
+    p.add_argument("--bin-infer-bin-counts", type=int, nargs="+", default=[4])
+    p.add_argument("--bin-infer-num-frames", type=int, default=2)
+    p.add_argument("--bin-infer-aggregator-depth", type=int, default=5)
+    p.add_argument("--bin-infer-aggregator-num-heads", type=int, default=12)
+    p.add_argument("--bin-infer-seed-number", type=int, default=10)
+    p.add_argument("--bin-infer-model-path", type=Path, help="Range classifier checkpoint (.pt).")
+    p.add_argument("--bin-infer-save-intermediate", action="store_true")
     p.set_defaults(func=cmd_find)
 
 
@@ -87,34 +100,120 @@ def cmd_find(args: argparse.Namespace) -> int:
     _validate_scale_lists(args)
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    log.info("Loading TIFFs from %s ...", args.folder)
-    stack, centers, paths = load_folder(args.folder, args.centers_file)
-    log.info("  %d slices, shape %s, dtype %s", len(paths), stack.shape[1:], stack.dtype)
-    log.info("  center range: %s .. %s", min(centers), max(centers))
+    if args.use_hierarchical_search:
+        if len(args.bin_infer_bin_sizes) != len(args.bin_infer_bin_counts):
+            raise ValueError(f"{len(args.bin_infer_bin_sizes)} bin sizes are used while {len(args.bin_infer_bin_counts)} bin counts are used.\n Equal numbers of both are required under hierarchical search mode.")
+        from tomo_center.ai.inference import bin_inference_pipeline
+        center_anchor = None
+        for i, (bin_size, bin_count) in enumerate(zip(args.bin_infer_bin_sizes, args.bin_infer_bin_counts)):
+            if bin_count%2 != 0:
+                raise ValueError(f"Number of bins to search should be even: got {bin_count} instead.")
+            log.info(f"Level {i+1}: search range is {bin_count} bins each of {bin_size} pixels")
+            center_search_step = float(bin_size)
+            center_search_width = float(bin_count) / 2 * float(bin_size)
 
-    infer_args = SimpleNamespace(
-        infer_use_8bits=args.use_8bits,
-        infer_downsample_factor=list(args.downsample_factor),
-        infer_num_windows=list(args.num_windows),
-        infer_window_size=list(args.window_size),
-        infer_seed_number=args.seed,
-        infer_model_path=str(args.model_path),
-        infer_save_intermediate_data=args.save_intermediate,
-    )
-    result = inference_pipeline(infer_args, stack, centers, str(args.out_dir))
-    chosen = result["centers"]
+            log.info("Loading TIFFs from %s ...", args.folder)
+            stack, centers, paths = load_folder(args.folder, args.centers_file, center_search_step = center_search_step, center_search_width = center_search_width, center_anchor = center_anchor)
+            log.info("  %d slices, shape %s, dtype %s", len(paths), stack.shape[1:], stack.dtype)
+            log.info("  center range: %s .. %s", min(centers), max(centers))
 
-    log.info("Best center(s):")
-    for c in chosen:
-        log.info("  %.1f", c)
+            bin_infer_args = SimpleNamespace(
+                bin_infer_use_8bits=args.bin_infer_use_8bits,
+                bin_infer_downsample_factor=list(args.bin_infer_downsample_factor),
+                bin_infer_num_windows=list(args.bin_infer_num_windows),
+                bin_infer_window_size=list(args.bin_infer_window_size),
+                bin_infer_bin_size=bin_size,
+                bin_infer_num_frames=args.bin_infer_num_frames,
+                bin_infer_aggregator_depth=args.bin_infer_aggregator_depth,
+                bin_infer_aggregator_num_heads=args.bin_infer_aggregator_num_heads,
+                bin_infer_seed_number=args.bin_infer_seed_number,
+                bin_infer_model_path=args.bin_infer_model_path,
+                bin_infer_save_intermediate_data=args.bin_infer_save_intermediate,
+            )
+            center_lb, center_ub = bin_inference_pipeline(bin_infer_args, stack, centers, str(args.out_dir))
+            center_anchor = (center_lb + center_ub) / 2
+        
+        center_search_width = (center_ub - center_lb) / 2
+        log.info("Loading TIFFs from %s ...", args.folder)
+        stack, centers, paths = load_folder(args.folder, args.centers_file, center_search_width = center_search_width, center_anchor = center_anchor)
+        log.info("  %d slices, shape %s, dtype %s", len(paths), stack.shape[1:], stack.dtype)
+        log.info("  center range: %s .. %s", min(centers), max(centers))
 
-    if args.plot is not None:
-        plot_path = (args.out_dir / "scores.png"
-                     if str(args.plot) == "__default__" else args.plot)
-        _plot_scores(result["candidates"], result["scores"], chosen, plot_path)
-        log.info("Wrote score plot to %s", plot_path)
+        from tomo_center.ai.inference import inference_pipeline
+        infer_args = SimpleNamespace(
+            infer_use_8bits=args.use_8bits,
+            infer_downsample_factor=list(args.downsample_factor),
+            infer_num_windows=list(args.num_windows),
+            infer_window_size=list(args.window_size),
+            infer_seed_number=args.seed,
+            infer_model_path=str(args.model_path),
+            infer_save_intermediate_data=args.save_intermediate,
+        )
+        result = inference_pipeline(infer_args, stack, centers, str(args.out_dir))
+        chosen = result["centers"]
 
-    return 0
+        log.info("Best center(s):")
+        for c in chosen:
+            log.info("  %.1f", c)
+
+        if args.plot is not None:
+            plot_path = (args.out_dir / "scores.png"
+                        if str(args.plot) == "__default__" else args.plot)
+            _plot_scores(result["candidates"], result["scores"], chosen, plot_path)
+            log.info("Wrote score plot to %s", plot_path)
+
+        return 0
+
+    else:
+        log.info("Loading TIFFs from %s ...", args.folder)
+        stack, centers, paths = load_folder(args.folder, args.centers_file)
+        log.info("  %d slices, shape %s, dtype %s", len(paths), stack.shape[1:], stack.dtype)
+        log.info("  center range: %s .. %s", min(centers), max(centers))
+        if args.use_bin_infer:
+            if len(args.bin_infer_bin_sizes) != 1:
+                raise ValueError(f"Only one bin size allowed under standalone bin infer mode.")
+            bin_infer_bin_size = args.bin_infer_bin_sizes[0]
+            from tomo_center.ai.inference import bin_inference_pipeline
+            bin_infer_args = SimpleNamespace(
+                bin_infer_use_8bits=args.bin_infer_use_8bits,
+                bin_infer_downsample_factor=list(args.bin_infer_downsample_factor),
+                bin_infer_num_windows=list(args.bin_infer_num_windows),
+                bin_infer_window_size=list(args.bin_infer_window_size),
+                bin_infer_bin_size=bin_infer_bin_size,
+                bin_infer_num_frames=args.bin_infer_num_frames,
+                bin_infer_aggregator_depth=args.bin_infer_aggregator_depth,
+                bin_infer_aggregator_num_heads=args.bin_infer_aggregator_num_heads,
+                bin_infer_seed_number=args.bin_infer_seed_number,
+                bin_infer_model_path=args.bin_infer_model_path,
+                bin_infer_save_intermediate_data=args.bin_infer_save_intermediate,
+            )
+            result = bin_inference_pipeline(bin_infer_args, stack, centers, str(args.out_dir))
+            return 0
+        else:
+            from tomo_center.ai.inference import inference_pipeline
+            infer_args = SimpleNamespace(
+                infer_use_8bits=args.use_8bits,
+                infer_downsample_factor=list(args.downsample_factor),
+                infer_num_windows=list(args.num_windows),
+                infer_window_size=list(args.window_size),
+                infer_seed_number=args.seed,
+                infer_model_path=str(args.model_path),
+                infer_save_intermediate_data=args.save_intermediate,
+            )
+            result = inference_pipeline(infer_args, stack, centers, str(args.out_dir))
+            chosen = result["centers"]
+
+            log.info("Best center(s):")
+            for c in chosen:
+                log.info("  %.1f", c)
+
+            if args.plot is not None:
+                plot_path = (args.out_dir / "scores.png"
+                            if str(args.plot) == "__default__" else args.plot)
+                _plot_scores(result["candidates"], result["scores"], chosen, plot_path)
+                log.info("Wrote score plot to %s", plot_path)
+
+            return 0
 
 
 def _plot_scores(candidates, scores, chosen, out_path: Path) -> None:
