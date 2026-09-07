@@ -130,27 +130,6 @@ def sample_patch_corner(sample_patch_probs,mask,window_size,num_windows):
     
     return patch_corners
 
-# def _collect_pairs(labels_dir: Path) -> List[Tuple[Path, int]]:
-#     centered_dir = labels_dir / "centered"
-#     off_dir = labels_dir / "off_centered"
-#     for d in (centered_dir, off_dir):
-#         if not d.is_dir():
-#             raise SystemExit(
-#                 f"Missing required subfolder: {d}\n"
-#                 f"Expected layout: {labels_dir}/centered/*.tif and "
-#                 f"{labels_dir}/off_centered/*.tif"
-#             )
-#     centered = sorted(p for p in centered_dir.iterdir()
-#                       if p.suffix.lower() in _TIFF_EXTS)
-#     off = sorted(p for p in off_dir.iterdir()
-#                  if p.suffix.lower() in _TIFF_EXTS)
-#     if not centered or not off:
-#         raise SystemExit(
-#             f"Need at least one TIFF in both centered/ ({len(centered)}) and "
-#             f"off_centered/ ({len(off)})."
-#         )
-#     return [(p, 1) for p in centered] + [(p, 0) for p in off]
-
 def _collect_pairs(image_root,meta_info_file,enlarge_factor,split_kw:str='case'):
     if type(split_kw) is not str:
         log.error("Input argumet: split_kw is expected to be of type str. Got %s instead.",type(split_kw).__name__)
@@ -194,7 +173,7 @@ def _collect_pairs(image_root,meta_info_file,enlarge_factor,split_kw:str='case')
                 cors = [extract_cor_from_filename(str(image_file)) for image_file in image_files_]
                 labels = [cor==optimal_cor for cor in cors]
                 if not np.any(np.array(labels)):
-                    log.warning("Case %s does not contain any images with the actual cor.",image_root_)
+                    log.warning("Case %s does not contain any images with the actual cor.",image_dir)
                 
                 row, col = metadata[2][1:-1].split(',')
                 row, col = int(row), int(col)
@@ -234,6 +213,10 @@ def extract_cor_from_filename(filename: str) -> float:
     match = re.search(r'center(\d+)', base)
     if match:
         return float(match.group(1))
+    
+    match = re.search(r'_(\d+)\.(\d+)', base)
+    if match:
+        return float(f"{match.group(1)}.{match.group(2)}")
 
     return None
 
@@ -302,6 +285,36 @@ def _split_pairs(pairs, val_split: float, seed: int, split_values=None):
         val_split_indices = [idx for idx,val in enumerate(split_values) if val in val_common_values]
         return [pairs[i] for i in train_split_indices],[pairs[i] for i in val_split_indices]
 
+def _resample_pairs(pairs, seed: int, resampling_method:str="upsample"):
+    if type(resampling_method) is not str:
+        log.error("Input argumet: resampling_method is expected to be of type str. Got %s instead.",type(resampling_method).__name__)
+        raise TypeError("Unexpected type for input argument.")
+    rng = random.Random(seed)
+    pairs_pos = [p for p in pairs if p[1]]
+    
+    pairs_neg = [p for p in pairs if not p[1]]
+    
+
+    if len(pairs_pos) > len(pairs_neg):
+        pairs_large = pairs_pos
+        pairs_small = pairs_neg
+    else:
+        pairs_large = pairs_neg
+        pairs_small = pairs_pos
+    
+    if resampling_method == "upsample":
+        pairs_small_resample = rng.choices(pairs_small,k=len(pairs_large))
+        pairs_resample = pairs_large+pairs_small_resample
+        rng.shuffle(pairs_resample)
+        return pairs_resample
+    elif resampling_method == 'downsample':
+        pairs_large_resample = rng.sample(pairs_large,k=len(pairs_small))
+        pairs_resample = pairs_large_resample+pairs_small
+        rng.shuffle(pairs_resample)
+        return pairs_resample
+    else:
+        log.error(f"Resampling method {resampling_method} currently not supported. Please choose among: upsample, downsample, or undo resampling with: none")
+        raise ValueError("Unexpected input %s",resampling_method)
 
 
 # ---------- model build / load ------------------------------------------------
@@ -320,7 +333,7 @@ def _build_model(args, device: torch.device) -> ClassificationModel:
             ) from e
         backbone.load_state_dict(hub_model.state_dict(), strict=False)
 
-    if args.freeze_backbone_ok:
+    if args.freeze_backbone:
         for p in backbone.parameters():
             p.requires_grad = False
     multi_instances = (args.num_windows>1)
@@ -329,8 +342,16 @@ def _build_model(args, device: torch.device) -> ClassificationModel:
         embed_dim=backbone.embed_dim,
         num_windows=[args.num_windows],
         multi_instances=multi_instances,
-        freeze_backbone_ok=args.freeze_backbone_ok
+        freeze_backbone_ok=args.freeze_backbone
     )
+
+    if args.freeze_pooler:
+        for p in model.attention.parameters():
+            p.requires_grad = False
+        for p in model.gate.parameters():
+            p.requires_grad = False
+        for p in model.fc.parameters():
+            p.requires_grad = False
 
     if args.resume is not None:
         log.info("Resuming full classifier from %s", args.resume)
@@ -396,11 +417,13 @@ def _epoch(model, loader, loss_fn, device, optimizer=None, scheduler=None):
     grad_ctx = torch.enable_grad() if train_mode else torch.no_grad()
     with grad_ctx:
         for imgs, labels in loader:
-            print(imgs.size())
             imgs = imgs.to(device, non_blocking=True)     # (B, k, 1, sz, sz)
             labels = labels.to(device, non_blocking=True)
             # ClassificationModel.forward takes a list of dicts (one per scale).
-            logits = model({"images": imgs})            # (B, 2)
+            if train_mode:
+                logits = model({"images": imgs})            # (B, 2)
+            else:
+                logits = model([{"images": imgs}])
             loss = loss_fn(logits, labels)
             if train_mode:
                 optimizer.zero_grad(set_to_none=True)
@@ -437,6 +460,9 @@ def run_training(args: argparse.Namespace) -> int:
 
     train_pairs, val_pairs = _split_pairs(pairs, args.val_split, args.seed, split_values)
     log.info("  split: train=%d  val=%d", len(train_pairs), len(val_pairs))
+    if args.resampling_method != 'none':
+        train_pairs = _resample_pairs(train_pairs, args.seed, resampling_method=args.resampling_method)
+        log.info("  split after %s: train=%d  val=%d",args.resampling_method, len(train_pairs), len(val_pairs))
 
     train_ds = CoRDataset(train_pairs, args.window_size, args.num_windows, augment=not args.no_augment,tomo_masks=tomo_masks)
     val_ds = CoRDataset(val_pairs, args.window_size, args.num_windows, augment=False,tomo_masks=tomo_masks) if val_pairs else None
@@ -454,7 +480,7 @@ def run_training(args: argparse.Namespace) -> int:
         optimizer, lr_lambda=_lr_lambda(args.warmup_steps, total_steps))
     loss_fn = torch.nn.CrossEntropyLoss()
 
-    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.mkdir(parents=True, exist_ok=True)
     best_metric = -1.0  # val_acc if we have val, else -train_loss
     best_epoch = 0
 
@@ -470,7 +496,16 @@ def run_training(args: argparse.Namespace) -> int:
             log.info("epoch %2d/%d  train_loss=%.4f train_acc=%.3f  (no val)",
                      epoch, args.epochs, train_loss, train_acc)
             metric = -train_loss
-
+        if args.checkpoint_every_epoch:
+            torch.save(
+                    {
+                        "epoch": epoch,
+                        "state_dict": model.state_dict(),
+                        "args": vars(args),
+                        "val_acc": (metric if val_loader is not None else None),
+                    },
+                    (args.out / f"epoch_{epoch}.pt"),
+                )
         if metric > best_metric:
             best_metric = metric
             best_epoch = epoch
@@ -481,12 +516,12 @@ def run_training(args: argparse.Namespace) -> int:
                     "args": vars(args),
                     "val_acc": (metric if val_loader is not None else None),
                 },
-                args.out,
+                (args.out / "epoch_best.pt"),
             )
             log.info("  saved best -> %s%s",
-                     args.out,
+                     (args.out / "epoch_best.pt"),
                      f" (val_acc={metric:.3f})" if val_loader is not None else "")
 
     log.info("Training done. Best epoch=%d. Checkpoint: %s",
-             best_epoch, args.out)
+             best_epoch, (args.out / 'epoch_best.pt'))
     return 0

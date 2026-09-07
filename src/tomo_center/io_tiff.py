@@ -86,6 +86,9 @@ def load_stack(paths: List[Path]) -> np.ndarray:
 def load_folder(
     folder: Path,
     centers_file: Path | None = None,
+    center_search_step: float | None = None,
+    center_search_width: float | None = None,
+    center_anchor: float | None = None,
 ) -> Tuple[np.ndarray, List[float], List[Path]]:
     """High-level: sorted TIFF stack + matching center list + the paths."""
     paths = list_tiffs(Path(folder))
@@ -94,4 +97,20 @@ def load_folder(
     else:
         centers = centers_from_filenames(paths)
     stack = load_stack(paths)
-    return stack, centers, paths
+
+    if (center_search_step is None) and (center_search_width is None):
+        return stack, centers, paths
+    elif center_search_width is not None:
+        if center_anchor is None:
+            center_anchor = centers[int(len(centers)//2)]
+        center_min = center_anchor - center_search_width
+        center_max = center_anchor + center_search_width
+        if center_search_step is not None:
+            centers_searched = np.arange(center_min,center_max+center_search_step,center_search_step)
+            indices_searched = [i for i, c in enumerate(centers) if c in centers_searched]
+        else:
+            indices_searched = [i for i, c in enumerate(centers) if (c<=center_max) and (c>=center_min)]
+        stack = np.stack([stack[i] for i in indices_searched])
+        centers = [centers[i] for i in indices_searched]
+        paths = [paths[i] for i in indices_searched]
+        return stack, centers, paths

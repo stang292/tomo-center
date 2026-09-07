@@ -137,8 +137,8 @@ A sharp peak with neighbors tapering off → confident pick (see the
 
 ## `train` — fine-tune the model
 
-Use this to adapt the shipped checkpoint to tomograms. Supports both full fine tuning and fine tuning the task-specific layers. In the latter scenario, only the
-**light-weighted pooling weights and the classifier head** are trained.
+Use this to adapt the shipped checkpoint to tomograms. Supports both full fine tuning and fine tuning the task-specific layers. In the latter scenario, the
+**classifier head** is trained, and the **adaptive pooling weights** can be configured to be frozen or unfrozen.
 
 ### Data layout
 #### Images
@@ -168,7 +168,7 @@ caseB 1012.5 (2424,2424)
 ...
 ```
 
-Metadata are recorded in .txt files, one per root directory. Each line corresponds to an individual case (sub-directory under the root directory containing the TIFFs) and consists of the sub-directory name, the actual center-of-rotation value, and the 2-D image size. 
+Metadata are supplied as .txt files, one per root directory. Each line corresponds to an individual case (sub-directory under the root directory containing the TIFFs) and consists of the sub-directory name, the actual center-of-rotation value, and the 2-D image size. 
 
 #### Tomocupy
 
@@ -185,7 +185,7 @@ Metadata are recorded in .txt files, one per root directory. Each line correspon
 
 The recipe above is the template. `tomo-center train` requires at minimum:
 
-1. Files live in `.../try_center/<SAMPLE>`, with one metadata file and one enlarge factor (for training data up-sampling) per `.../try_center/` root directory. Multiple root directories and metadata files are supported and their numbers should match.
+1. Files live in `.../try_center/<SAMPLE>`, with one metadata file and one enlarge factor (for training data up-sampling) grouped per `.../try_center/` root directory. Multiple root directories and metadata files are supported and their numbers should match.
 2. Image files are TIFF (`.tif` / `.tiff`).
 3. Names are unique within their subfolder — `<sample>_<center>.tif` is a safe
    convention.
@@ -201,7 +201,7 @@ tomo-center train --image-root /path/to/root1 /path/to/root2 ...\
     --meta-info-file /path/to/metadata1 /path/to/metadata2 ...\
     --enlarge-factor 1 1 ...\
     --resume /path/to/datav2_518_full_finetune.pt \
-    --out    /path/to/finetuned_model.pt
+    --out    /path/to/the/directory/containing/finetuned_model.pt
 ```
 By default, the model is fully fine-tuned. To freeze the backbone ViT and only fine-tune the task-specific weights, run:
 ```bash
@@ -209,8 +209,18 @@ tomo-center train --image-root /path/to/root1 /path/to/root2 ...\
     --meta-info-file /path/to/metadata1 /path/to/metadata2 ...\
     --enlarge-factor 1 1 ...\
     --resume /path/to/datav2_518_full_finetune.pt \
-    --out    /path/to/finetuned_model.pt
-    --freeze-backbone-ok
+    --out    /path/to/the/directory/containing/finetuned_model.pt \
+    --freeze-backbone
+```
+To freeze both the backbone ViT and the adaptive pooling weights and only fine-tune the classification head weights (head-only training), run:
+```bash
+tomo-center train --image-root /path/to/root1 /path/to/root2 ...\
+    --meta-info-file /path/to/metadata1 /path/to/metadata2 ...\
+    --enlarge-factor 1 1 ...\
+    --resume /path/to/datav2_518_full_finetune.pt \
+    --out    /path/to/the/directory/containing/finetuned_model.pt \
+    --freeze-backbone \
+    --freeze-pooler
 ```
 ### Defaults and key flags
 
@@ -227,7 +237,7 @@ tomo-center train --image-root /path/to/root1 /path/to/root2 ...\
 
 ### Output
 
-A `.pt` file at `--out`, saved only when val accuracy improves. Structure:
+A `.pt` file at `--out`, saved only when val accuracy improves. In order to save model weights for each training epoch, enable `tomo-center train --checkpoint-every-epoch`. Output structure:
 
 ```python
 {"epoch": ..., "state_dict": ..., "args": {...}, "val_acc": ...}
