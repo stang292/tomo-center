@@ -142,7 +142,7 @@ def _collect_pairs(image_root,meta_info_file,enlarge_factor,split_kw:str='case',
         image_root = [image_root]
     if type(meta_info_file) is str:
         meta_info_file = [meta_info_file]
-    if type(enlarge_factor) is str:
+    if type(enlarge_factor) is int:
         enlarge_factor = [enlarge_factor]
     
     if not isinstance(image_root,list):
@@ -258,8 +258,6 @@ class CoRRangeDataset(Dataset):
         cor_value_indices = [i for i in range(len(self.split_values)) if (self.split_values[i] == self.split_values[idx])]
         free_cor_value_indices = [i for i in cor_value_indices if (abs(self.cors_all[i]-cor)>=self.cor_sep_min) and (abs(self.cors_all[i]-cor)<=self.cor_sep_max)]
         optimal_cor_value_index_ = [i for i in cor_value_indices if self.pairs[i][1]]
-        if len(optimal_cor_value_index_) != 1:
-            raise ValueError(f"case {str(Path(path).parent)} contains {len(optimal_cor_value_index_)} optimal cor values. One optimal value per case expected.")
         optimal_cor_value_index = optimal_cor_value_index_[0]
         optimal_cor = self.cors_all[optimal_cor_value_index]
         idx2 = np.random.choice(free_cor_value_indices,1,replace=False).item()
@@ -613,9 +611,6 @@ def run_training(args: argparse.Namespace) -> int:
             train_pairs, train_split_values, train_cors_all = _resample_pairs(train_pairs, args.seed, resampling_method=args.resampling_method, cache_cors=cache_cors, split_values=train_split_values, cors_all=train_cors_all)
         else:
             train_pairs = _resample_pairs(train_pairs, args.seed, resampling_method=args.resampling_method)
-    for p, s, c in zip(train_pairs, train_split_values, train_cors_all):
-        with open('/data/temp.txt','a') as f:
-            f.write(f"{p} {s} {c} \n")
         log.info("  split after %s: train=%d  val=%d",args.resampling_method, len(train_pairs), len(val_pairs))
 
     if cache_cors:
