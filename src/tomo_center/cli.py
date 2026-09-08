@@ -313,6 +313,15 @@ def _add_train_parser(sub: argparse._SubParsersAction) -> None:
                    help="Balance the training data by resampling data from one class.")
     p.add_argument("--checkpoint-every-epoch", action="store_true",
                    help="When set save the model weights for every training epoch.")
+    p.add_argument("--model-type", type=str, default='parameter_classification', choices=['parameter_classification','parameter_range_classification'],
+                   help="Type of model to train.")
+    p.add_argument("--aggregator-depth", type=int, default=5)
+    p.add_argument("--aggregator-num-heads", type=int, default=12)
+    p.add_argument("--backbone-model-path", type=Path, default=None)
+    p.add_argument("--cor-sep-min",type=float,default=10.)
+    p.add_argument("--cor-sep-max",type=float,default=40.)
+    p.add_argument("--freeze-aggregator", action="store_true",
+                    help="When set freeze the vision transformer aggregator weights.")
     p.set_defaults(func=cmd_train)
 
 
