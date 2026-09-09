@@ -322,6 +322,8 @@ def _add_train_parser(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--cor-sep-max",type=float,default=40.)
     p.add_argument("--freeze-aggregator", action="store_true",
                     help="When set freeze the vision transformer aggregator weights.")
+    p.add_argument("--backbone-lr-divisor", type=float, default=1.,
+                    help="Initial learning rate divisor for backbone weights.")
     p.set_defaults(func=cmd_train)
 
 

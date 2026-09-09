@@ -511,20 +511,33 @@ def _build_model(args, device: torch.device) -> ClassificationModel | RangeClass
 
 # ---------- optimizer / scheduler ---------------------------------------------
 
-def _make_optimizer(model, lr: float, weight_decay: float) -> torch.optim.Optimizer:
+def _make_optimizer(model, lr: float, weight_decay: float, backbone_lr_divisor: float = 1.) -> torch.optim.Optimizer:
     """AdamW with no weight decay on gain/bias/norm parameters (matches Polaris script)."""
     def is_no_decay(name: str, p: torch.nn.Parameter) -> bool:
         return p.ndim < 2 or "bias" in name or "ln" in name or "bn" in name
-
-    no_decay, decay = [], []
+    def is_backbone(name: str) -> bool:
+        return name.startswith("model.")
+    
+    no_decay, decay_backbone, decay_non_backbone = [], [], []
     for n, p in model.named_parameters():
         if not p.requires_grad:
             continue
-        (no_decay if is_no_decay(n, p) else decay).append(p)
-
+        if is_no_decay(n, p):
+            no_decay.append(p)
+        else:
+            if is_backbone(n):
+                decay_backbone.append(p)
+            else:
+                decay_non_backbone.append(p)
+    
+    log.info(f"Found {len(no_decay)} groups of trainable gain or bias parameters")
+    log.info(f"Found {len(decay_backbone)} groups of trainable backbone parameters")
+    log.info(f"Found {len(decay_non_backbone)} groups of trainable non-backbone parameters")
+    
     return torch.optim.AdamW(
         [{"params": no_decay, "weight_decay": 0.0},
-         {"params": decay,    "weight_decay": weight_decay}],
+         {"params": decay_backbone, "weight_decay": weight_decay, "lr": lr / backbone_lr_divisor},
+         {"params": decay_non_backbone, "weight_decay": weight_decay}],
         lr=lr,
     )
 
@@ -627,7 +640,7 @@ def run_training(args: argparse.Namespace) -> int:
                   if val_ds is not None else None)
 
     model = _build_model(args, device)
-    optimizer = _make_optimizer(model, args.lr, args.weight_decay)
+    optimizer = _make_optimizer(model, args.lr, args.weight_decay, args.backbone_lr_divisor)
     total_steps = max(1, len(train_loader) * args.epochs)
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer, lr_lambda=_lr_lambda(args.warmup_steps, total_steps))
