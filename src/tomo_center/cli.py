@@ -72,7 +72,7 @@ def _add_find_parser(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--use-hierarchical-search", action="store_true")
     p.add_argument("--bin-infer-use-8bits", action="store_true")
     p.add_argument("--bin-infer-downsample-factor", type=int, nargs="+", default=[1])
-    p.add_argument("--bin-infer-num-windows", type=int, nargs="+", default=[20])
+    p.add_argument("--bin-infer-num-windows", type=int, nargs="+", default=[10])
     p.add_argument("--bin-infer-window-size", type=int, nargs="+", default=[518])
     p.add_argument("--bin-infer-bin-sizes", type=int, nargs="+", default=[24])
     p.add_argument("--bin-infer-bin-counts", type=int, nargs="+", default=[4])
@@ -80,7 +80,9 @@ def _add_find_parser(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--bin-infer-aggregator-depth", type=int, default=5)
     p.add_argument("--bin-infer-aggregator-num-heads", type=int, default=12)
     p.add_argument("--bin-infer-seed-number", type=int, default=10)
-    p.add_argument("--bin-infer-model-path", type=Path, help="Range classifier checkpoint (.pt).")
+    p.add_argument("--bin-infer-model-path", type=Path, 
+                   help="Range classifier checkpoint (.pt). Download from "
+                        "https://anl.box.com/s/7kcmv9yav2j9y1c0b8lwhc1bp43tyrop")
     p.add_argument("--bin-infer-save-intermediate", action="store_true")
     p.set_defaults(func=cmd_find)
 
